@@ -2802,13 +2802,20 @@ function konzeptB(t){const spin=2.6,m=eio((t-2.1)/1.3),cx=lerp(L.h.x,L.f.x,m),cy
  if(t>=2.05){c.save();L.funken.forEach(p=>{const k=eio((t-2.05-p.d)/1.15);const tx=cx+Math.cos(p.a+t*.4)*L.f.R*p.rr*lerp(.2,1,m),ty=cy+Math.sin(p.a+t*.4)*L.f.R*p.rr*lerp(.2,1,m),sw=Math.sin(Math.PI*k)*L.fs*.6;
   const x=lerp(p.x,tx,k)+Math.cos(p.a)*sw,y=lerp(p.y,ty,k)+Math.sin(p.a)*sw,al=k<.85?1:1-(k-.85)/.15*(ign);if(al<=0)return;c.globalAlpha=al;c.fillStyle=k<.05?'#ffffff':'#bff0ff';c.fillRect(x-1,y-1,2,2)});c.restore()}}
 
- let fertig=false,raf=0;const DAUER=4.3;
- function aus(schnell){if(fertig)return;fertig=true;cv.style.transition='opacity '+(schnell?'.35s':'.8s')+' ease';cv.style.opacity='0';cv.style.pointerEvents='none';setTimeout(()=>{cancelAnimationFrame(raf);cv.remove()},schnell?400:850)}
- function bild(now){if(!cv.isConnected)return;const t=(now-T0)/1000;c.setTransform(DPR,0,0,DPR,0,0);hintergrund();konzeptB(t);if(t>=DAUER)aus(false);raf=requestAnimationFrame(bild)}
+ let fertig=false,raf=0;const DAUER=4.35;
+ // Übergabe in drei Schichten: 1. der royalblaue Hintergrund löst sich auf und gibt den Holo-Boden frei, 2. das Start-Auge geht mit einem Lichtring in die echte Iris über, 3. Schalter und Eingabe blenden nacheinander ein
+ const sty=document.createElement('style');sty.textContent='body.startlauf #vbtn,body.startlauf #turbo,body.startlauf #bar,body.startlauf #status{opacity:0!important;transform:translateY(10px)}body.startauf #vbtn,body.startauf #turbo,body.startauf #bar,body.startauf #status{transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)!important}body.startauf #status{transition-delay:.1s!important}body.startauf #vbtn,body.startauf #turbo{transition-delay:.3s!important}body.startauf #bar{transition-delay:.45s!important}';document.head.appendChild(sty);document.body.classList.add('startlauf');
+ function uiEin(){document.body.classList.add('startauf');document.body.classList.remove('startlauf');setTimeout(()=>{document.body.classList.remove('startauf');sty.remove()},1500)}
+ function aus(schnell){if(fertig)return;fertig=true;cv.style.transition='opacity '+(schnell?'.35s':'.75s')+' ease';cv.style.opacity='0';cv.style.pointerEvents='none';uiEin();setTimeout(()=>{cancelAnimationFrame(raf);cv.remove()},schnell?400:800)}
+ function bild(now){if(!cv.isConnected)return;const t=(now-T0)/1000;c.setTransform(DPR,0,0,DPR,0,0);c.clearRect(0,0,W,H);
+  const bgA=1-eio((t-3.45)/.95);if(bgA>0){c.save();c.globalAlpha=bgA;hintergrund();c.restore()}
+  konzeptB(t);
+  const rk=(t-3.95)/.7;if(rk>0&&rk<1){c.save();c.strokeStyle=J;c.shadowColor=J;c.shadowBlur=18;c.lineWidth=2.5*(1-rk);c.globalAlpha=Math.sin(Math.PI*rk)*.9;c.beginPath();c.arc(L.f.x,L.f.y,L.f.R*(1+rk*.45),0,7);c.stroke();c.restore()}
+  if(t>=DAUER)aus(false);raf=requestAnimationFrame(bild)}
  const ueberspringen=e=>{if(!fertig){e.stopPropagation();e.preventDefault();aus(true)}};cv.addEventListener('pointerdown',ueberspringen);addEventListener('keydown',function k(e){if(!fertig){aus(true)}removeEventListener('keydown',k)},{once:true});
  addEventListener('resize',()=>{if(!fertig)layout()});
  (document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(()=>{layout();c.setTransform(DPR,0,0,DPR,0,0);hintergrund();T0=performance.now()+150;raf=requestAnimationFrame(bild)});
  // sofort dunkel, bis die Schrift geladen ist
  DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;c.setTransform(DPR,0,0,DPR,0,0);hintergrund();
 })();
-</script><script>if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js').catch(()=>{})</script></body></html>
+</script><script>if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'))navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>r.update()).catch(()=>{})</script></body></html>
