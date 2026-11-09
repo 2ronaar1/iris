@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>I.R.I.S – Mobil v13.5</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="apple-touch-icon.png"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="I.R.I.S"><meta name="application-name" content="I.R.I.S">
+<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>I.R.I.S – Mobil v13.7</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="favicon.ico" sizes="any"><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="apple-touch-icon.png"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="I.R.I.S"><meta name="application-name" content="I.R.I.S">
 <meta name="theme-color" content="#010205">
 <style>
 :root{--j:#7FDBFF;transition:none;--d:#2F7BFF;--bg:#010205;--txt:#fff;--sub:#9AABBB;--ok:#34D399;--warn:#FACC15;--bad:#FF4D6D}
@@ -507,6 +507,9 @@ canvas,#orbBtn,#zeitrad .zk,#grid .p{touch-action:none;-webkit-user-select:none;
 <div class="vrow"><span id="fstat" class="vst"></span><span class="pb" id="fbtn">ORDNER WÄHLEN</span></div></section>
 <section class="vs"><h3>Gedächtnis</h3><p class="vh">Ordner <b>Gedächtnis</b> neben I.R.I.S – <b>Allgemein</b> (Basis-Intelligenz) und <b>Persönlich</b> (du). In Obsidian als Tresor öffnen.</p>
 <div class="vrow"><span id="gstat" class="vst"></span><span class="pb" id="gbtn">ORDNER WÄHLEN</span></div></section>
+<section class="vs" id="lsec" hidden><h3>Laptop-Gedächtnis</h3><p class="vh">Das Handy gleicht sein Gedächtnis über Tailscale mit dem Ordner <b>Gedächtnis</b> am Laptop ab. Adresse und Schlüssel zeigt <b>handy-verbinden.bat</b> am Laptop.</p>
+<input id="lurl" class="vin" type="url" autocomplete="off" placeholder="https://…ts.net"><input id="lkey" class="vin" type="password" autocomplete="off" placeholder="Handy-Schlüssel" style="margin-top:8px">
+<div class="vrow"><span id="lstat" class="vst"></span><span class="pb" id="lsave">VERBINDEN</span></div></section>
 <section class="vs"><h3>Stimme</h3><p class="vh">Hauptstimme über ElevenLabs · aktuell <b id="elname"></b></p>
 <label class="vl">Stimmen-ID<input id="elvoice" class="vin" type="text"></label>
 <label class="vl">ElevenLabs-Schlüssel<input id="elkey" class="vin" type="password" placeholder="sk_… hier einfügen"></label>
@@ -587,23 +590,27 @@ const MODELLE={quick:'claude-haiku-5-5',default:'claude-sonnet-5-5',complex:'cla
 let AKEY='';try{AKEY=localStorage.getItem('irisAnthropicKey')||''}catch(e){}
 function apiFehler(status,msg){const m=String(msg||'');if(status===401||status===403)return 'schluessel_ungueltig';if(status===429)return 'rate_limited';if(/credit|balance|billing/i.test(m))return 'kein_guthaben';if(status===404)return 'modell_fehlt';if(status>=500)return 'upstream_error';return 'api_'+status}
 // Websuche (Anthropic web_search, serverseitig). WEBOK=false, falls im Konto deaktiviert.
-let WEBOK=true;const WEBTOOL=n=>({type:'web_search_20260318',name:'web_search',max_uses:n,user_location:{type:'approximate',city:'Frankfurt am Main',country:'DE',timezone:'Europe/Berlin'}});
+let WEBOK=true,DENKOK=true,DENKART='adaptive';// Extended Thinking: zuerst „adaptive“, sonst mit festem Budget, sonst aus
+const WEBTOOL=n=>({type:'web_search_20260318',name:'web_search',max_uses:n,user_location:{type:'approximate',city:'Frankfurt am Main',country:'DE',timezone:'Europe/Berlin'}});
 SAMPLE=async function(prompt,o={}){if(!AKEY)throw {code:'kein_schluessel'};
  const user={role:'user',content:CUR_ANH.length&&!o.ohneAnh?[...CUR_ANH.map(a=>a.block),{type:'text',text:`(Aaron hat ${CUR_ANH.length} Datei(en) angehängt: ${CUR_ANH.map(a=>a.name).join(', ')})\n\n`+prompt}]:prompt};
  let msgs=o.vorlauf?[user,{role:'assistant',content:o.vorlauf}]:[user],text='',stop='',runde=0;
- for(;;){const web=o.web&&WEBOK;const req={model:MODELLE[o.modelTier]||MODELLE.default,max_tokens:o.maxTokens||(o.modelTier==='complex'?8000:4000),stream:!!o.onText,messages:msgs};if(web)req.tools=[WEBTOOL(o.web)];
+ for(;;){const web=o.web&&WEBOK,denk=o.denken&&DENKOK&&!o.vorlauf;const req={model:MODELLE[o.modelTier]||MODELLE.default,max_tokens:o.maxTokens||(o.modelTier==='complex'?8000:4000),stream:!!o.onText,messages:msgs};if(web)req.tools=[WEBTOOL(o.web)];
+  if(denk){const bud=o.denkBudget||(o.modelTier==='complex'?10000:6000);req.thinking=DENKART==='adaptive'?{type:'adaptive'}:{type:'enabled',budget_tokens:bud};req.max_tokens=Math.max(req.max_tokens,bud+6000)}
   let r;try{r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:o.signal,headers:{'content-type':'application/json','x-api-key':AKEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify(req)})}
   catch(e){throw {code:e&&e.name==='AbortError'?'cancelled':'netzwerk',text}}
   if(!r.ok){let m='';try{const j=await r.json();m=j.error&&j.error.message||''}catch(e){}
-   if(web&&r.status===400&&/web.?search/i.test(m)){WEBOK=false;continue}if(r.status===400&&/max_tokens/i.test(m)&&req.max_tokens>8000){o={...o,maxTokens:Math.floor(req.max_tokens/2)};continue}throw {code:apiFehler(r.status,m),message:m,text}}
+   if(web&&r.status===400&&/web.?search/i.test(m)){WEBOK=false;continue}if(denk&&r.status===400&&/thinking|budget/i.test(m)){if(DENKART==='adaptive')DENKART='budget';else DENKOK=false;continue}if(r.status===400&&/max_tokens/i.test(m)&&req.max_tokens>8000){o={...o,maxTokens:Math.floor(req.max_tokens/2)};continue}throw {code:apiFehler(r.status,m),message:m,text}}
   if(!o.onText){const j=await r.json();return {text:(j.content||[]).map(c=>c.text||'').join(''),truncated:j.stop_reason==='max_tokens'}}
   const rd=r.body.getReader(),dec=new TextDecoder();let buf='';const blocks=[],pj={};stop='';
   try{for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
    while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i).trim();buf=buf.slice(i+1);if(!line.startsWith('data:'))continue;let ev;try{ev=JSON.parse(line.slice(5))}catch(e){continue}
-    if(ev.type==='content_block_start'){const cb=JSON.parse(JSON.stringify(ev.content_block||{}));blocks[ev.index]=cb;if(cb.type==='server_tool_use')pj[ev.index]='';
+    if(ev.type==='content_block_start'){const cb=JSON.parse(JSON.stringify(ev.content_block||{}));blocks[ev.index]=cb;if(cb.type==='server_tool_use')pj[ev.index]='';if(cb.type==='thinking'){cb.thinking=cb.thinking||'';o.onDenk&&o.onDenk(0)}
      if(cb.type==='web_search_tool_result'&&o.onSources&&Array.isArray(cb.content))o.onSources(cb.content.filter(x=>x&&x.url).map(x=>({title:x.title||'',url:x.url})))}
     else if(ev.type==='content_block_delta'&&ev.delta){const d=ev.delta,cb=blocks[ev.index];
-     if(d.type==='text_delta'){text+=d.text;if(cb)cb.text=(cb.text||'')+d.text;o.onText({text,delta:d.text})}
+     if(d.type==='thinking_delta'&&cb){cb.thinking=(cb.thinking||'')+(d.thinking||'');o.onDenk&&o.onDenk(cb.thinking.length)}
+     else if(d.type==='signature_delta'&&cb){cb.signature=(cb.signature||'')+(d.signature||'')}
+     else if(d.type==='text_delta'){text+=d.text;if(cb)cb.text=(cb.text||'')+d.text;o.onText({text,delta:d.text})}
      else if(d.type==='input_json_delta')pj[ev.index]=(pj[ev.index]||'')+(d.partial_json||'');
      else if(d.type==='citations_delta'&&cb){(cb.citations=cb.citations||[]).push(d.citation)}}
     else if(ev.type==='content_block_stop'){const cb=blocks[ev.index];if(cb&&cb.type==='server_tool_use'){if(pj[ev.index]){try{cb.input=JSON.parse(pj[ev.index])}catch(e){}}const inp=cb.input||{},q=inp.query||(Array.isArray(inp.queries)&&inp.queries[0])||'';if(o.onSearch&&/search|fetch/i.test(cb.name||'web_search'))o.onSearch(String(q||(/fetch/i.test(cb.name||'')?'Seite lesen: '+(inp.url||''):'')))}}
@@ -717,20 +724,56 @@ async function gedUmzug(){let alt=null;try{alt=await ROOT.getDirectoryHandle('01
 document.getElementById('gbtn').onclick=async()=>{if(!window.showDirectoryPicker){gstat('Dein Browser kann keine Ordner öffnen – nimm Chrome oder Edge.','var(--warn)');return}
  try{const h=GED&&!(await gedRecht(false))?GED:await showDirectoryPicker({id:'iris-ged',mode:'readwrite'});GED=h;if(!(await gedRecht(true)))return gstat('Kein Zugriff erlaubt.','var(--warn)');await IDB(st=>st.put(h,'ged'));await ladeGedaechtnis()}catch(e){if(e&&e.name!=='AbortError')gstat('Fehler: '+e.message,'var(--warn)')}};
 // Handy-Gedächtnis: am Handy gibt es keine Ordner – Iris hält ihr Gedächtnis dann im Speicher dieses Browsers (IndexedDB), gleiche Struktur wie der Ordner am PC
+// ===== Laptop-Gedächtnis (Weg B): das Handy gleicht sein Gedächtnis über Tailscale mit dem Ordner „Gedächtnis“ am Laptop ab =====
+// 3-Wege-Abgleich je Datei (letzter gemeinsamer Stand · Handy · Laptop), zeilenweise – so geht nichts verloren. Laptop aus → Handy merkt sich alles und gleicht später ab.
+const LG={url:'',key:'',laeuft:false,nochmal:false,t:null,letzt:0,fehler:''};
+try{LG.url=localStorage.getItem('irisLaptopUrl')||'';LG.key=localStorage.getItem('irisLaptopKey')||''}catch(e){}
+function lgDb(name){return new Promise((res,rej)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function lgAlle(db){return new Promise((res,rej)=>{const out={},c=db.transaction('f').objectStore('f').openCursor();c.onsuccess=()=>{const k=c.result;if(k){out[k.key]=k.value;k.continue()}else res(out)};c.onerror=()=>rej(c.error)})}
+function lgSchreib(db,ops){return new Promise((res,rej)=>{if(!ops.length)return res();const t=db.transaction('f','readwrite'),st=t.objectStore('f');ops.forEach(([k,v])=>v===undefined?st.delete(k):st.put(v,k));t.oncomplete=()=>res();t.onerror=()=>rej(t.error)})}
+function lgMerge(B,L,R){if(L===R||L===B)return R;if(R===B)return L;if(L===undefined)return R;if(R===undefined)return L;
+ const bl=(B||'').split('\n'),ll=L.split('\n'),rl=R.split('\n'),bs=new Set(bl),ls=new Set(ll),rs=new Set(rl),weg=new Set(bl.filter(z=>z.trim()&&!ls.has(z)));
+ let out=rl.filter(z=>!weg.has(z));const neu=ll.filter(z=>z.trim()&&!bs.has(z)&&!rs.has(z)),st=neu.find(z=>/^stand: /.test(z));
+ if(st){const i=out.findIndex(z=>/^stand: /.test(z));if(i>=0&&st>out[i])out[i]=st}while(out.length&&out.at(-1)==='')out.pop();return out.concat(neu.filter(z=>!/^stand: /.test(z))).join('\n')+'\n'}
+function lgStatus(t,f){const e=document.getElementById('lstat');if(e){e.textContent=t;e.style.color=f||'var(--sub)'}}
+async function laptopSync(){if(!LG.url||!LG.key||!GED||!GED.handy)return;if(LG.laeuft){LG.nochmal=true;return}LG.laeuft=true;LG.nochmal=false;
+ const basis=LG.url.replace(/\/+$/,''),H={'X-Iris-Schluessel':LG.key};
+ try{const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),9000);let r;
+  try{r=await fetch(basis+'/ged/alle',{headers:H,signal:ctl.signal,cache:'no-store'})}finally{clearTimeout(to)}
+  if(r.status===401)throw {t:'Schlüssel falsch – neu eintragen'};if(!r.ok)throw {t:'Laptop antwortet mit Fehler '+r.status};
+  const R={};((await r.json()).dateien||[]).forEach(d=>{R[d.p]=d.t});
+  const dbL=await lgDb('iris-handy-gedaechtnis'),dbB=await lgDb('iris-handy-basis'),roh=await lgAlle(dbL),B=await lgAlle(dbB),L={};
+  for(const [k,v] of Object.entries(roh)){if(/\.(md|json)$/.test(k))L[k]=v instanceof Blob?await v.text():String(v)}
+  const opsL=[],opsB=[];let hoch=0,runter=0;
+  for(const p of new Set([...Object.keys(R),...Object.keys(L),...Object.keys(B)])){const erg=lgMerge(B[p],L[p],R[p]);
+   if(erg!==R[p]){const a=await fetch(basis+'/ged/datei?p='+encodeURIComponent(p),{method:erg===undefined?'DELETE':'PUT',headers:{...H,'Content-Type':'text/plain; charset=utf-8'},body:erg===undefined?undefined:erg});if(!a.ok)throw {t:'Laptop konnte „'+p+'“ nicht speichern'};hoch++}
+   if(erg!==L[p]){opsL.push([p,erg]);runter++}if(erg!==B[p])opsB.push([p,erg])}
+  await lgSchreib(dbL,opsL);await lgSchreib(dbB,opsB);LG.letzt=Date.now();LG.fehler='';
+  if(opsL.length){GED=await handyGed();await ladeGedaechtnis()}
+  lgStatus('Mit Laptop abgeglichen · '+new Date().toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})+(hoch||runter?' · ↑ '+hoch+' ↓ '+runter:''),'var(--ok)')}
+ catch(e){LG.fehler=e&&e.t?e.t:'Laptop nicht erreichbar – Iris merkt sich alles und gleicht später ab';lgStatus(LG.fehler,'var(--warn)')}
+ finally{LG.laeuft=false;if(LG.nochmal)setTimeout(laptopSync,800)}}
+function laptopSyncBald(){clearTimeout(LG.t);LG.t=setTimeout(laptopSync,2500)}
+setInterval(()=>{if(document.visibilityState==='visible')laptopSync()},120000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')laptopSync()});
+
+(()=>{const u=document.getElementById('lurl'),k=document.getElementById('lkey');if(u)u.value=LG.url;if(k&&LG.key)k.placeholder='Schlüssel gespeichert ✓';
+ if(LG.url)lgStatus('Wird abgeglichen …');
+ const b=document.getElementById('lsave');if(b)b.onclick=()=>{let url=u.value.trim();if(url&&!/^https?:\/\//.test(url))url='https://'+url;LG.url=url;if(k.value.trim())LG.key=k.value.trim();try{localStorage.setItem('irisLaptopUrl',LG.url);localStorage.setItem('irisLaptopKey',LG.key)}catch(e){}k.value='';k.placeholder=LG.key?'Schlüssel gespeichert ✓':'Handy-Schlüssel';lgStatus('Verbinde …');laptopSync()}})();
 async function handyGed(){const db=await new Promise((res,rej)=>{const r=indexedDB.open('iris-handy-gedaechtnis',1);r.onupgradeneeded=()=>r.result.createObjectStore('f');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
  const tx=(f)=>new Promise((res,rej)=>{const t=db.transaction('f','readwrite');f(t.objectStore('f'));t.oncomplete=()=>res();t.onerror=()=>rej(t.error)});
  const alle=await new Promise((res,rej)=>{const out={},t=db.transaction('f'),c=t.objectStore('f').openCursor();c.onsuccess=()=>{const k=c.result;if(k){out[k.key]=k.value;k.continue()}else res(out)};c.onerror=()=>rej(c.error)});
  const alsDatei=t=>t instanceof Blob?t:new Blob([t||''],{type:'text/plain'});
  class FH{constructor(n,p,t){this.kind='file';this.name=n;this.p=p;this.t=t}async getFile(){const b=alsDatei(this.t);return Object.assign(b,{name:this.name,lastModified:this.m||0})}
-  async createWritable(){const s=this,teile=[];return {write:async d=>{teile.push(d&&d.data!==undefined?d.data:d)},close:async()=>{const txt=teile.every(x=>typeof x==='string');s.t=txt?teile.join(''):new Blob(teile);s.m=Date.now();await tx(st=>st.put(s.t,s.p))}}}}
+  async createWritable(){const s=this,teile=[];return {write:async d=>{teile.push(d&&d.data!==undefined?d.data:d)},close:async()=>{const txt=teile.every(x=>typeof x==='string');s.t=txt?teile.join(''):new Blob(teile);s.m=Date.now();await tx(st=>st.put(s.t,s.p));try{laptopSyncBald()}catch(e){}}}}}
  class DH{constructor(n,p){this.kind='directory';this.name=n;this.p=p;this.c=new Map()}async queryPermission(){return 'granted'}async requestPermission(){return 'granted'}
   async getDirectoryHandle(n,o={}){let h=this.c.get(n);if(!h){if(!o.create)throw new DOMException('nicht vorhanden','NotFoundError');h=new DH(n,this.p+n+'/');this.c.set(n,h)}if(h.kind!=='directory')throw new DOMException('kein Ordner','TypeMismatchError');return h}
   async getFileHandle(n,o={}){let h=this.c.get(n);if(!h){if(!o.create)throw new DOMException('nicht vorhanden','NotFoundError');h=new FH(n,this.p+n,'');this.c.set(n,h)}if(h.kind!=='file')throw new DOMException('keine Datei','TypeMismatchError');return h}
-  async removeEntry(n){const h=this.c.get(n);if(!h)return;this.c.delete(n);await tx(st=>{if(h.kind==='file')st.delete(h.p);else st.delete(IDBKeyRange.bound(h.p,h.p+'￿'))})}
+  async removeEntry(n){const h=this.c.get(n);if(!h)return;this.c.delete(n);await tx(st=>{if(h.kind==='file')st.delete(h.p);else st.delete(IDBKeyRange.bound(h.p,h.p+'￿'))});try{laptopSyncBald()}catch(e){}}
   async *entries(){for(const e of [...this.c])yield e}async *values(){for(const h of [...this.c.values()])yield h}async *keys(){for(const k of [...this.c.keys()])yield k}}
  const root=new DH('Gedächtnis','');for(const [p,t] of Object.entries(alle)){const parts=p.split('/');let d=root;for(const x of parts.slice(0,-1)){if(!d.c.get(x))d.c.set(x,new DH(x,d.p+x+'/'));d=d.c.get(x)}d.c.set(parts.at(-1),new FH(parts.at(-1),p,t))}
  root.handy=true;return root}
-(async()=>{if(!window.showDirectoryPicker){document.getElementById('gbtn').style.display='none';try{GED=await handyGed();await ladeGedaechtnis();const e=document.getElementById('gstat');if(e)e.textContent='Handy-Gedächtnis (nur auf diesem Gerät) · '+e.textContent.replace(/^Verbunden · /,'')}catch(e){GED=null;gstat('Gedächtnis hier nicht verfügbar.','var(--warn)')}return}try{GED=await IDB(st=>st.get('ged'))}catch(e){}
+(async()=>{if(!window.showDirectoryPicker){document.getElementById('gbtn').style.display='none';try{GED=await handyGed();await ladeGedaechtnis();const e=document.getElementById('gstat');if(e)e.textContent='Handy-Gedächtnis · '+e.textContent.replace(/^Verbunden · /,'');document.getElementById('lsec').hidden=false;laptopSync()}catch(e){GED=null;gstat('Gedächtnis hier nicht verfügbar.','var(--warn)')}return}try{GED=await IDB(st=>st.get('ged'))}catch(e){}
  if(!GED){gstat('Noch nicht verbunden – wähle den Ordner „Gedächtnis“ neben I.R.I.S.','var(--warn)');return}
  if(await gedRecht(false))await ladeGedaechtnis();else{gstat('Ordner bekannt – einmal freigeben','var(--warn)');document.getElementById('gbtn').textContent='FREIGEBEN'}})();
 // Schlüssel-Feld
@@ -760,9 +803,9 @@ const VARIANT=`Optional pro Panel "v":"breit|hoch|hervor" – SELTEN, höchstens
 function quellen(list){if(!(ABL.such&&ABL.such.el.isConnected)){ablSuche('');ABL.such.n=Math.max(0,ABL.such.n-1)}const S=ABL.such;const st=S.el.querySelector('.inh');let q=st.querySelector('.quellen');if(!q){q=document.createElement('div');q.className='u quellen';q.dataset.d=''}
  const have=new Set(q.dataset.d?q.dataset.d.split('|'):[]);for(const x of list){try{const d=new URL(x.url).hostname.replace(/^www\./,'');if(have.size<6&&!have.has(d)){have.add(d);q.dataset.u=(q.dataset.u?q.dataset.u+'|':'')+x.url}}catch(e){}}
  q.dataset.d=[...have].join('|');const us=(q.dataset.u||'').split('|');q.innerHTML='<span>Quellen: '+[...have].map((d,i)=>`<a href="${esc(us[i]||'https://'+d)}" target="_blank" rel="noopener">${esc(d)}</a>`).join(' · ')+'</span>';S.el.querySelector('.unt').appendChild(q);S.d=[...have];S.text('<span class="zahl">'+S.n+'</span> Suche'+(S.n>1?'n':'')+' · <span class="zahl">'+S.d.length+'</span> Quellen',false)}
-async function streamLines(prompt,tier,onLine,web=0){let buf='';const eat=line=>{line=line.trim();if(!line||line.startsWith('```'))return;const i=line.indexOf('{'),j=line.lastIndexOf('}');if(i<0||j<i)return;try{onLine(JSON.parse(line.slice(i,j+1)))}catch(e){}};
- CTL=new AbortController();const r=await SAMPLE(prompt,{modelTier:tier,cache:false,signal:CTL.signal,web,onSearch:q=>takt(()=>ablSuche(q)),onSources:l=>takt(()=>quellen(l)),onText:({delta})=>{if(ABL.denk&&ABL.akt===ABL.denk){ABL.denk.z=(ABL.denk.z||0)+(delta||'').length;ABL.denk.text('Iris schreibt · <span class="zahl">'+ABL.denk.z+'</span> Zeichen',false)}const parts=(buf+delta).split('\n');buf=parts.pop();parts.forEach(eat)}});eat(buf);return r}
-async function denke(text,onLine){return streamLines(`${ctxBase()}\n\n## Aarons Befehl jetzt\n${text}\n\n${SCHEMA}\n${VARIANT}`,turbo||/gründlich|turbo|strategie/i.test(text)?'complex':'default',onLine,3)}
+async function streamLines(prompt,tier,onLine,web=0,opt={}){let buf='',dS=null,dZ=0;const denkEnde=()=>{if(dS&&dS.laeuft()){dS.text('Gründlich nachgedacht · <span class="zahl">'+dZ+'</span> Zeichen Gedanken');dS.fertig()}};const eat=line=>{line=line.trim();if(!line||line.startsWith('```'))return;const i=line.indexOf('{'),j=line.lastIndexOf('}');if(i<0||j<i)return;try{onLine(JSON.parse(line.slice(i,j+1)))}catch(e){}};
+ CTL=new AbortController();const r=await SAMPLE(prompt,{modelTier:tier,cache:false,signal:CTL.signal,web,denken:!!opt.denken,onDenk:n=>{if(!dS){dS=schritt('Denkt gründlich nach').start()}dZ=n;const nu=performance.now();if(!dS._t||nu-dS._t>180){dS._t=nu;dS.text('Denkt gründlich nach · <span class="zahl">'+n+'</span> Zeichen Gedanken',false)}},onSearch:q=>takt(()=>ablSuche(q)),onSources:l=>takt(()=>quellen(l)),onText:({delta})=>{denkEnde();if(ABL.denk&&ABL.akt===ABL.denk){ABL.denk.z=(ABL.denk.z||0)+(delta||'').length;ABL.denk.text('Iris schreibt · <span class="zahl">'+ABL.denk.z+'</span> Zeichen',false)}const parts=(buf+delta).split('\n');buf=parts.pop();parts.forEach(eat)}});denkEnde();eat(buf);return r}
+async function denke(text,onLine){return streamLines(`${ctxBase()}\n\n## Aarons Befehl jetzt\n${text}\n\n${SCHEMA}\n${VARIANT}`,turbo||/gründlich|turbo|strategie/i.test(text)?'complex':'default',onLine,3,{denken:turbo})}
 // --- live rendering helpers
 const G=()=>document.getElementById('grid');
 const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -930,7 +973,7 @@ async function analyse(frage){
  for(let i=0;i<bp.phasen.length;i++){if(ANA.abort)return;const ph=bp.phasen[i];
   if(i)await wechsel();liveReset(ph.name.toUpperCase());document.getElementById('tsub').textContent=bp.name.toUpperCase()+' · PHASE '+(i+1)+'/'+bp.phasen.length;chips(i);ghost(false);rasterBauen(ph.slots,RASTER_P);
   let fz='',au='';await streamLines(`${ctxBase()}\n\n## Analyse-Protokoll: ${bp.name}\nMission: ${mission}\nAuftrag von Aaron: ${frage}\n\n## Bisherige Phasen\n${fazits.map((f,k)=>(k+1)+'. '+bp.phasen[k].name+': '+f).join('\n')||'(dies ist die erste Phase)'}\n\n## Jetzt: Phase ${i+1} von ${bp.phasen.length} – ${ph.name}\n${ph.auftrag}\n\nDas Raster ist FEST. Fülle genau diese Felder, in dieser Reihenfolge, jedes genau einmal:\n${slotListe(ph.slots)}\n\nAntworte im Format JSON Lines, GENAU ein JSON-Objekt pro Zeile, nichts anderes:\n{"typ":"schritt","t":"was du gerade prüfst, max. 6 Wörter"}   (genau 3 Zeilen, zuerst)\n{"typ":"slot","id":"a","d":...,"m":"optional"}   (je Feld eine Zeile)\n{"typ":"auskunft","t":"1 kurzer Satz (max. 20 Wörter), den Iris nach dieser Phase laut zu Aaron sagt: das Wichtigste, warm, du-Form"}\n{"typ":"fazit","t":"2 Sätze: das Wichtigste dieser Phase für die nächsten Phasen"}\n${DATEN}`,tier,o=>{
-    if(!o||!o.typ)return;if(o.typ==='schritt')addStep(o.t);else if(o.typ==='slot')slotFuellen(String(o.id||''),o.d,o.m);else if(o.typ==='auskunft'&&o.t){au=String(o.t);say(au)}else if(o.typ==='fazit')fz=String(o.t||'')},4);
+    if(!o||!o.typ)return;if(o.typ==='schritt')addStep(o.t);else if(o.typ==='slot')slotFuellen(String(o.id||''),o.d,o.m);else if(o.typ==='auskunft'&&o.t){au=String(o.t);say(au)}else if(o.typ==='fazit')fz=String(o.t||'')},4,{denken:true});
   slotsAbschliessen();ablEnde();fazits.push(fz||'(ohne Fazit)');snap(i);await sleep(700);if(au)await sprichtFertig()}
  if(ANA.abort)return;await wechsel();liveReset('ERGEBNIS');document.getElementById('tsub').textContent=bp.name.toUpperCase()+' · GESAMTERGEBNIS';ANA.done=true;chips('f');
  const fs=FINAL();ghost(false);rasterBauen(fs,RASTER_F);
@@ -938,7 +981,7 @@ async function analyse(frage){
  await streamLines(`${ctxBase()}\n\n## Analyse-Protokoll: ${bp.name}\nAuftrag: ${frage}\nMission: ${mission}\n\n## Ergebnisse der Phasen\n${fazits.map((f,k)=>(k+1)+'. '+bp.phasen[k].name+': '+f).join('\n')}\n\nFasse jetzt alles zu einer klaren Antwort zusammen. Das Raster ist FEST:\n${slotListe(fs)}\nFeld "a" = die Antwort auf Aarons Frage, klar und direkt. Feld "x" = ["hoch|mittel|niedrig","wie sicher die Antwort ist"]. Feld "y" = ["gut|mittel|dünn","worauf die Antwort beruht, max. 4 Wörter"]. Feld "b" = 2-4 Fragen, die offen bleiben: [["Frage",""],...]. Feld "c" = genau 3 nächste Schritte für Aaron: [["1","Schritt"],["2","…"],["3","…"]].\n\nAntworte im Format JSON Lines, GENAU ein JSON-Objekt pro Zeile:\n{"typ":"titel","t":"KURZER TITEL IN GROSSBUCHSTABEN"}\n{"typ":"schritt","t":"max. 6 Wörter"}   (genau 2 Zeilen)\n{"typ":"antwort","t":"1-3 kurze, warme Sätze, die Iris laut sagt (du-Form)"}\n{"typ":"slot","id":"a","d":...}   (je Feld eine Zeile, Reihenfolge a,x,y,b,c)\n{"typ":"merken","f":["neue dauerhafte Fakten, die Aaron selbst über sich gesagt hat"]}   (nur wenn es welche gibt)\n${DATEN}`,tier,o=>{
    if(!o||!o.typ)return;if(o.typ==='titel')setTitle(String(o.t||'ERGEBNIS').toUpperCase().slice(0,40));
    else if(o.typ==='schritt')addStep(o.t);else if(o.typ==='antwort'){said=String(o.t||'');const sy=document.getElementById('sayt');sy.textContent=said;sy.hidden=false;reply=said;say(said)}
-   else if(o.typ==='slot')slotFuellen(String(o.id||''),o.d,o.m);else if(o.typ==='merken')merke(o.f).then(n=>{nNeu+=n});else if(o.typ==='lernen')lerne(o.w)});
+   else if(o.typ==='slot')slotFuellen(String(o.id||''),o.d,o.m);else if(o.typ==='merken')merke(o.f).then(n=>{nNeu+=n});else if(o.typ==='lernen')lerne(o.w)},0,{denken:true});
  slotsAbschliessen();snap('f');chips('f');VERLAUF.push({r:'a',t:said||'(Analyse fertig)'});timerOn(false);liveDone(nNeu?('Gemerkt: '+nNeu+(nNeu>1?' neue Punkte':' neuer Punkt')):'Tippe oben auf eine Phase, um sie nochmal anzusehen.')}
 function pick(text){const q=(text||'').toLowerCase();
  if(q.includes('baustelle'))return [EX[0],'Hier ist der Stand von Baustelle A.'];
@@ -2467,7 +2510,7 @@ async function systemLauf(frage){LIVE=true;stages(true);liveReset('SYSTEM');set(
  if(ABL.denk&&ABL.denk.laeuft())ABL.denk.text('Systemmodus');
  const s1=schritt('Beschreibung verstehen'),s2=schritt('In Bausteine zerlegen',{balken:false}),s3=schritt('Ablauf nachbauen'),s4=schritt('Engpass suchen'),s5=schritt('Gegen deine 4 Säulen prüfen');
  await sleep(RM?0:300);s1.start().text('Iris liest dein System …');
- let j;try{j=await SAMPLE.json(`${ctxBase()}\n\n## Systemmodus – Aarons Auftrag\n${frage}\n\n${SYS_SCHEMA}`,{modelTier:turbo?'complex':'default',cache:false,onFort:(()=>{let l=0;return x=>{const n=performance.now();if(n-l<200)return;l=n;s1.text('Iris schreibt · '+z((x.match(/"n"\s*:/g)||[]).length)+' Stationen',false)}})()})}
+ let j;try{j=await SAMPLE.json(`${ctxBase()}\n\n## Systemmodus – Aarons Auftrag\n${frage}\n\n${SYS_SCHEMA}`,{modelTier:turbo?'complex':'default',cache:false,denken:turbo,onFort:(()=>{let l=0;return x=>{const n=performance.now();if(n-l<200)return;l=n;s1.text('Iris schreibt · '+z((x.match(/"n"\s*:/g)||[]).length)+' Stationen',false)}})()})}
  catch(e){s1.fertig('fehler');throw e}
  const kn=(Array.isArray(j&&j.knoten)?j.knoten:[]).filter(k=>k&&k.n).slice(0,8);
  if(!kn.length){s1.text('Mir fehlt etwas').fertig();stages(false);const f=String(j&&j.frage||'Beschreib mir das System etwas genauer: Welche Schritte gibt es, wer macht sie, und wie viel geht pro Woche durch?');setTitle('RÜCKFRAGE');addPanel({s:'L',t:'RÜCKFRAGE',k:'text',d:f});reply=f;say(f);VERLAUF.push({r:'a',t:f});liveDone('');return}
@@ -2576,7 +2619,7 @@ async function gesetzLauf(frage){LIVE=true;stages(true);liveReset('GESETZ');set(
  if(ABL.denk&&ABL.denk.laeuft())ABL.denk.text('Gesetzmodus');
  const s1=schritt('Frage verstehen'),s2=schritt('Gesetze und ähnliche Fälle suchen',{balken:false}),s3=schritt('Paragraphen prüfen'),s3b=schritt('Ähnliche Fälle vergleichen'),s4=schritt('Einschätzung + Sicherheit');
  await sleep(RM?0:300);s1.start().text('Iris liest deinen Fall …');let nS=0,srcs=[];
- let j;try{j=await SAMPLE.json(`${ctxBase()}\n\n## Gesetzmodus – Aarons Anliegen\n${frage}\n\nHeute ist der ${new Date().toLocaleDateString('de-DE')}.\n\n${GES_SCHEMA}`,{modelTier:turbo?'complex':'default',cache:false,lang:true,web:WEBOK?7:0,
+ let j;try{j=await SAMPLE.json(`${ctxBase()}\n\n## Gesetzmodus – Aarons Anliegen\n${frage}\n\nHeute ist der ${new Date().toLocaleDateString('de-DE')}.\n\n${GES_SCHEMA}`,{modelTier:turbo?'complex':'default',cache:false,denken:turbo,lang:true,web:WEBOK?7:0,
    onSearch:q=>{if(!nS){s1.fertig();s2.start()}nS++;s2.teil(esc(String(q).slice(0,70)))},onSources:l=>{srcs=srcs.concat(l)}})}
  catch(e){s1.fertig('fehler');throw e}
  if(!nS)s1.fertig();const art=['legal','pruefen','training','fall'].includes(j&&j.art)?j.art:'legal';
